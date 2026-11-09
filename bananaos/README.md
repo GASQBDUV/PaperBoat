@@ -5,9 +5,9 @@ dual-screen **Anbernic RG DS Plus**. The game runs on one panel. The other panel
 points) with the **world map** underneath. The map is drawn by the game itself, centred on Mario's current location, and you can
 **drag it with the touch screen**. PaperBoat's ImGui menu opens on the bottom panel with working touch.
 
-| Map and status bar | Menu on the touch screen |
-|---|---|
-| ![map](../docs/img/dual-screen-map.png) | ![menu](../docs/img/dual-screen-menu.png) |
+| Map and status bar | In a battle | Menu on the touch screen |
+|---|---|---|
+| ![map](../docs/img/dual-screen-map.png) | ![battle](../docs/img/dual-screen-battle.png) | ![menu](../docs/img/dual-screen-menu.png) |
 
 ## Install
 
