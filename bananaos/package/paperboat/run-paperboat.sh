@@ -18,7 +18,7 @@ if [ ! -f pm64.o2r ]; then
   exit 2
 fi
 
-# One panel's size from the display's own mode (RG DS Plus: 1024x768; other models have other panels)
+# One panel's size from the display's own mode (RG DS Plus: 1024x768; the regular RG DS: 640x480)
 PW=1024; PH=768
 for c in /sys/class/drm/card*-DSI-1 /sys/class/drm/card*-DSI-2; do
   m=$(head -n1 "$c/modes" 2>/dev/null)
@@ -32,9 +32,15 @@ if [ "${PAPERBOAT_SCREENS:-dual}" != single ]; then
   # Banana-SDL "stack" mode: one window of two panels (W x 2H), game on one panel, PaperBoat's own UI on the other.
   export PAPERBOAT_SCREENS SDL_BANANA_PANELS=stack SDL_BANANA_TRACE=1 SDL_VIDEODRIVER=offscreen
   # the offscreen driver has no fullscreen size: a plain window of the two panels
-  sed -i -e '/"Fullscreen": {/,/}/ s/"Enabled": true/"Enabled": false/' \
-         -e "/^    \"Window\": {/,\$ s/\"Height\": [0-9]*/\"Height\": $H2/" \
-         -e "/^    \"Window\": {/,\$ s/\"Width\": [0-9]*/\"Width\": $PW/" "$CONFIG"
+  if grep -q '"Width"' "$CONFIG"; then
+    sed -i -e '/"Fullscreen": {/,/}/ s/"Enabled": true/"Enabled": false/' \
+           -e "/^    \"Window\": {/,\$ s/\"Height\": [0-9]*/\"Height\": $H2/" \
+           -e "/^    \"Window\": {/,\$ s/\"Width\": [0-9]*/\"Width\": $PW/" "$CONFIG"
+  else
+    # a fresh config (the game has not written its window settings yet): put them in. Without them the window is one
+    # panel big, fullscreen, and both panels show the same picture (SETCRTC 1 "No space left on device")
+    sed -i "s/^\([[:space:]]*\)\"Window\": {/\1\"Window\": {\n\1    \"Fullscreen\": { \"Enabled\": false, \"Width\": $PW, \"Height\": $H2 },\n\1    \"Width\": $PW,\n\1    \"Height\": $H2,/" "$CONFIG"
+  fi
   . /usr/libexec/banana/one-panel && one_panel_dark top && one_panel_restore
 else
   [ -f "$CONFIG" ] && sed -i -e "/^    \"Window\": {/,\$ s/\"Height\": $H2/\"Height\": $PH/" "$CONFIG"
