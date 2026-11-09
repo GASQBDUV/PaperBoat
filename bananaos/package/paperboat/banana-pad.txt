@@ -1,0 +1,1 @@
+190000004b4800000111000000010000,RetroGame Joypad,a:b1,b:b0,back:b8,dpdown:b14,dpleft:b15,dpright:b16,dpup:b13,leftshoulder:b4,lefttrigger:b6,leftx:a0,lefty:a1,righttrigger:b7,start:b9,-righty:b2,-rightx:b3,+rightx:b5,+righty:b11,platform:Linux,

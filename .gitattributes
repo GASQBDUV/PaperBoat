@@ -7,3 +7,7 @@ asm/nonmatchings/**/*.s linguist-generated
 *.h	diff=cpp
 
 src/world/dead/**/* merge=ours
+
+bananaos/** text eol=lf
+bananaos/package/paperboat/libs/* binary
+bananaos/package/paperboat/*.o2r binary

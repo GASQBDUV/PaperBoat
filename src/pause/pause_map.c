@@ -505,3 +505,131 @@ void pause_map_cleanup(MenuPanel* tab) {
         hud_element_free(PauseMapHIDs[i]);
     }
 }
+
+
+// BananaOS second screen: the world map from the pause menu, centred on Mario's current location, drawn at
+// (x0, y0) with size w x h (screen pixels, 320x240 space). Same GBI calls as pause_map_draw_contents.
+extern s32 port_banana_touch(f32* x, f32* y);
+
+void banana_draw_world_map(s32 x0, s32 y0, s32 w, s32 h) {
+    s32 location = evt_get_variable(nullptr, GB_WorldLocation);
+    s32 marioX = 160;
+    s32 marioY = 160;
+    s32 offX, offY;
+    s32 i, j, rows;
+    PauseMapSpace* mapSpace;
+
+    for (i = 0; i < ARRAY_COUNT(PauseMapSpaces); i++) {
+        if (PauseMapSpaces[i].id == location) {
+            marioX = PauseMapSpaces[i].pos.x;
+            marioY = PauseMapSpaces[i].pos.y;
+            break;
+        }
+    }
+
+    {
+        // touch drag pans the map; a new location (or no touch yet) re-centres on Mario
+        static s32 lastLoc = -1;
+        static s32 panned = 0;
+        static f32 panX = 0, panY = 0, lastTX = 0, lastTY = 0;
+        static s32 wasDown = 0;
+        f32 tx, ty;
+        s32 down = port_banana_touch(&tx, &ty);
+
+        if (location != lastLoc) {
+            lastLoc = location;
+            panned = 0;
+        }
+        if (!panned) {
+            panX = marioX - w / 2;
+            panY = marioY - h / 2;
+        }
+        if (down && wasDown) {
+            panX -= tx - lastTX;
+            panY -= ty - lastTY;
+            panned = 1;
+        }
+        wasDown = down;
+        lastTX = tx;
+        lastTY = ty;
+        if (panX > 320 - w) { panX = 320 - w; }
+        if (panY > 320 - h) { panY = 320 - h; }
+        if (panX < 0) { panX = 0; }
+        if (panY < 0) { panY = 0; }
+        offX = (s32)panX;
+        offY = (s32)panY;
+    }
+
+    gSPDisplayList(gMainGfxPos++, PauseGfxWorldMap);
+    gDPSetScissor(gMainGfxPos++, G_SC_NON_INTERLACE, 0, 0, 320, 240);
+    // LUS samples the whole texture, so one rectangle replaces the N64's 4-row TMEM strips
+    gDPLoadTextureTile(gMainGfxPos++, pause_world_map_png, G_IM_FMT_CI, G_IM_SIZ_8b, 320, 320,
+                    0, 0, 319, 319, 0,
+                    G_TX_CLAMP, G_TX_CLAMP, G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+    {
+        // MAPTEST: live debug mode read from /data/paperboat/maptest (0 = normal)
+        static int mode = 0;
+        static int cnt = 0;
+        if (cnt++ % 120 == 0) {
+            FILE* tf = fopen("/data/paperboat/maptest", "r");
+            mode = 0;
+            if (tf) { if (fscanf(tf, "%d", &mode) != 1) { mode = 0; } fclose(tf); }
+        }
+        if (mode == 1) { // two rects of half height
+            s32 half = h / 2;
+            pause_draw_rect(x0 * 4, y0 * 4, (x0 + w) * 4, (y0 + half) * 4, 0, offX * 32, offY * 32, 0x400, 0x400);
+            gDPPipeSync(gMainGfxPos++);
+            pause_draw_rect(x0 * 4, (y0 + half) * 4, (x0 + w) * 4, (y0 + h) * 4, 0, offX * 32, (offY + half) * 32, 0x400, 0x400);
+        } else if (mode == 2) { // 112 rows, moved down to y = 128
+            pause_draw_rect(x0 * 4, 128 * 4, (x0 + w) * 4, 240 * 4, 0, offX * 32, offY * 32, 0x400, 0x400);
+        } else if (mode == 3) { // 112 rows from the top of the region, texture rows 0..
+            pause_draw_rect(x0 * 4, y0 * 4, (x0 + w) * 4, (y0 + h) * 4, 0, offX * 32, 0, 0x400, 0x400);
+        } else {
+            pause_draw_rect(x0 * 4, y0 * 4, (x0 + w) * 4, (y0 + h) * 4, 0, offX * 32, offY * 32, 0x400, 0x400);
+        }
+    }
+    gDPPipeSync(gMainGfxPos++);
+
+    gSPDisplayList(gMainGfxPos++, PauseGfxPathPoints);
+    gDPSetScissor(gMainGfxPos++, G_SC_NON_INTERLACE, 0, 0, 320, 240);
+    mapSpace = PauseMapSpaces;
+    for (i = 0; i < ARRAY_COUNT(PauseMapSpaces); i++, mapSpace++) {
+        s32 px, py, pathX = 0, pathY = 0;
+        Vec2b* path;
+
+        if (evt_get_variable(nullptr, GF_MAP_ToadTown + i) == 0) {
+            continue;
+        }
+        px = x0 + mapSpace->pos.x - offX;
+        py = y0 + mapSpace->pos.y - offY;
+
+        gDPSetPrimColor(gMainGfxPos++, 0, 0, 220, 80, 30, 255);
+        pause_draw_rect((px - 8) * 4, (py - 8) * 4, (px + 8) * 4, (py + 8) * 4, 0, 0, 0, 0x400, 0x400);
+        gDPPipeSync(gMainGfxPos++);
+        gDPSetPrimColor(gMainGfxPos++, 0, 0, 230, 190, 180, 255);
+
+        path = mapSpace->path;
+        if (path != nullptr) {
+            for (j = 0; j < mapSpace->pathLength; j++, path++) {
+                pathX += path->x;
+                pathY += path->y;
+                pause_draw_rect((px + pathX - 8) * 4, (py + pathY - 8) * 4, (px + pathX + 8) * 4, (py + pathY + 8) * 4,
+                                1, 0, 0, 0x400, 0x400);
+            }
+        }
+    }
+
+    // Mario marker: the game's own map icon
+    {
+        static HudElemID sMarioHid = -1;
+        static HudElement* sMarioPtr = nullptr;
+        // the game frees/rebuilds its HUD element list on map and state changes: re-create when ours is gone
+        if (sMarioHid < 0 || sMarioPtr == nullptr || get_hud_element(sMarioHid) != sMarioPtr) {
+            sMarioHid = hud_element_create(PauseMapHudScripts[0]);
+            hud_element_set_flags(sMarioHid, HUD_ELEMENT_FLAG_MANUAL_RENDER);
+            sMarioPtr = get_hud_element(sMarioHid);
+        }
+        hud_element_set_render_pos(sMarioHid, x0 + marioX - offX, y0 + marioY - offY - 7);
+        hud_element_draw_without_clipping(sMarioHid);
+    }
+}

@@ -19,6 +19,10 @@
 #include "port/ui/devtools/saveeditor/SaveEditor.h"
 #include "port/ui/ActorBlueprintEditor.h"
 
+namespace SecondScreen {
+void Register();
+}
+
 namespace PaperboatGui {
 // MARK: - Delegates
 std::shared_ptr<Ship::GuiWindow> mInputEditorWindow;
@@ -42,6 +46,7 @@ UIWidgets::Colors GetMenuThemeColor() {
 }
 
 void SetupMenu() {
+    SecondScreen::Register();
     auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
     mPaperboatMenu = std::make_shared<PaperboatGui::PaperboatMenu>(CVAR_WINDOW("Menu"), "Port Menu");
     gui->SetMenu(mPaperboatMenu);

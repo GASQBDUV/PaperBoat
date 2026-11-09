@@ -1,3 +1,5 @@
+> **bananaOS / Anbernic RG DS fork:** this branch adds a second-screen map and status bar for dual-screen handhelds. See [bananaos/README.md](bananaos/README.md).
+
 # PaperBoat
 *Harbour Masters port of Paper Mario 64*
 

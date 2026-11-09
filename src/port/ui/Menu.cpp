@@ -1,3 +1,4 @@
+#include "ship/window/gui/BananaPanels.h"
 #include "Menu.h"
 #include <libultraship/bridge/windowbridge.h>
 #include <libultraship/bridge/controllerbridge.h>
@@ -628,6 +629,10 @@ void Menu::DrawElement() {
 
     windowHeight = ImGui::GetMainViewport()->WorkSize.y;
     windowWidth = ImGui::GetMainViewport()->WorkSize.x;
+    if (BananaPanels::Active()) {
+        windowHeight = BananaPanels::Second().h;
+        windowWidth = BananaPanels::Second().w;
+    }
     auto windowFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
     bool popout = CVarGetInteger(CVAR_SETTING("Menu.Popout"), 0) && allowPopout;
     if (popout) {
@@ -651,7 +656,12 @@ void Menu::DrawElement() {
     auto windowCond = ImGuiCond_Always;
     if (!popout) {
         ImGui::SetNextWindowSize({ static_cast<float>(windowWidth), static_cast<float>(windowHeight) }, windowCond);
-        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), windowCond, { 0.5f, 0.5f });
+        if (BananaPanels::Active()) {
+            const auto r = BananaPanels::Second();
+            ImGui::SetNextWindowPos({ r.x + r.w * 0.5f, r.y + r.h * 0.5f }, windowCond, { 0.5f, 0.5f });
+        } else {
+            ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), windowCond, { 0.5f, 0.5f });
+        }
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     }
 

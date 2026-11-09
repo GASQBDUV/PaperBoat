@@ -1550,7 +1550,32 @@ API_CALLABLE(ShowCoinCounter) {
     return ApiStatus_DONE2;
 }
 
+extern int port_banana_dual(void);
+extern int port_banana_status_fb(void);
+extern void banana_draw_world_map(s32 x0, s32 y0, s32 w, s32 h);
+
 void draw_status_ui(void) {
+    if (port_banana_dual()) {
+        // BananaOS second screen: the real status bar, always visible, drawn into its own framebuffer
+        StatusBar* sb = &gStatusBar;
+        s32 fb = port_banana_status_fb();
+        u32 fill = (GPACK_RGBA5551(13, 13, 20, 1) << 16) | GPACK_RGBA5551(13, 13, 20, 1);
+
+        gsSPSetFB(gMainGfxPos++, fb);
+        gDPPipeSync(gMainGfxPos++);
+        gDPSetCycleType(gMainGfxPos++, G_CYC_FILL);
+        gDPSetFillColor(gMainGfxPos++, fill);
+        gDPFillRectangle(gMainGfxPos++, 0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1);
+        gDPPipeSync(gMainGfxPos++);
+        banana_draw_world_map(0, 0, 320, 240);
+        sb->hidden = false;
+        sb->showTimer = 60;
+        sb->drawPosY = FULLY_EXTENDED_Y;
+        update_status_bar();
+        update_coin_counter();
+        gsSPResetFB(gMainGfxPos++);
+        return;
+    }
     update_status_bar();
     update_coin_counter();
 

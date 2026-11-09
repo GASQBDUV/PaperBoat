@@ -1,0 +1,190 @@
+diff --git a/include/ship/window/gui/BananaPanels.h b/include/ship/window/gui/BananaPanels.h
+new file mode 100644
+index 0000000..fa21f0b
+--- /dev/null
++++ b/include/ship/window/gui/BananaPanels.h
+@@ -0,0 +1,31 @@
++// BananaOS two-panel layout (SDL_BANANA_PANELS=stack: one 1024x1536 window, top panel = y 0..767).
++// PAPERBOAT_SCREENS=single|dual|swap. Everything is placed through ImGui windows.
++#pragma once
++#include <cstdlib>
++#include <cstring>
++#include <functional>
++
++namespace BananaPanels {
++struct PanelRect {
++    float x, y, w, h;
++};
++constexpr float PanelW = 1024.0f;
++constexpr float PanelH = 768.0f;
++
++inline int Mode() {
++    static const int m = [] {
++        const char* e = std::getenv("PAPERBOAT_SCREENS");
++        if (!e) return 0;
++        if (!std::strcmp(e, "dual")) return 1;
++        if (!std::strcmp(e, "swap")) return 2;
++        return 0;
++    }();
++    return m;
++}
++inline bool Active() { return Mode() != 0; }
++inline PanelRect Game() { return { 0, Mode() == 2 ? PanelH : 0, PanelW, PanelH }; }
++inline PanelRect Second() { return { 0, Mode() == 2 ? 0 : PanelH, PanelW, PanelH }; }
++
++// The game side sets this to draw its own content in the "Second Screen" window (called inside ImGui::Begin).
++inline std::function<void(const PanelRect&)> SecondScreenDraw;
++} // namespace BananaPanels
+diff --git a/src/fast/interpreter.cpp b/src/fast/interpreter.cpp
+index 1c16baa..fb753c2 100644
+--- a/src/fast/interpreter.cpp
++++ b/src/fast/interpreter.cpp
+@@ -8318,6 +8318,13 @@ extern "C" int gfx_create_framebuffer(uint32_t width, uint32_t height, uint32_t
+                                                            forceFixedAspect);
+ }
+ 
++extern "C" void* gfx_get_framebuffer_texture(int fb) {
++    if (auto gfx = Fast::mInstance.lock()) {
++        return gfx->mRapi->GetFramebufferTextureId(fb);
++    }
++    return nullptr;
++}
++
+ extern "C" void gfx_texture_cache_clear() {
+     Fast::mInstance.lock().get()->TextureCacheClear();
+ }
+diff --git a/src/ship/window/gui/Gui.cpp b/src/ship/window/gui/Gui.cpp
+index 47cf44e..6e229a4 100644
+--- a/src/ship/window/gui/Gui.cpp
++++ b/src/ship/window/gui/Gui.cpp
+@@ -14,10 +14,72 @@
+ #include "ship/resource/File.h"
+ #include <stb_image.h>
+ #include "ship/window/gui/Fonts.h"
++#include "ship/window/gui/BananaPanels.h"
+ #include "ship/window/gui/resource/GuiTextureFactory.h"
+ #include "ship/window/gui/resource/GuiTexture.h"
+ 
++#include <fcntl.h>
++#include <unistd.h>
++#include <sys/ioctl.h>
++#include <linux/input.h>
++#include <cstdio>
++
++#include <unistd.h>
++#include <vector>
++
++extern "C" void glReadPixels(int x, int y, int w, int h, unsigned format, unsigned type, void* data);
++
++static void BananaShot() {
++    if (access("/run/banana/paperboat-shot", F_OK) != 0) return;
++    unlink("/run/banana/paperboat-shot");
++    const int w = (int)BananaPanels::PanelW, h = (int)BananaPanels::PanelH * 2;
++    std::vector<unsigned char> px((size_t)w * h * 4);
++    glReadPixels(0, 0, w, h, 0x1908 /*GL_RGBA*/, 0x1401 /*GL_UNSIGNED_BYTE*/, px.data());
++    char path[96];
++    for (int n = 0; n < 1000; n++) {
++        snprintf(path, sizeof(path), "/data/screenshots/paperboat-panels-%03d.ppm", n);
++        if (access(path, F_OK) != 0) break;
++    }
++    FILE* f = fopen(path, "wb");
++    if (!f) return;
++    fprintf(f, "P6\n%d %d\n255\n", w, h);
++    for (int y = h - 1; y >= 0; y--) { // GL rows are bottom-up
++        for (int x = 0; x < w; x++) fwrite(&px[((size_t)y * w + x) * 4], 1, 3, f);
++    }
++    fclose(f);
++}
++
+ namespace Ship {
++
++static void BananaPollTouch(ImGuiIO& io) {
++    static int fd = -2;
++    static int x = 0, y = 0;
++    static bool down = false;
++    if (fd == -2) {
++        fd = -1;
++        for (int i = 0; i < 16 && fd < 0; i++) {
++            char path[32], name[64] = {};
++            snprintf(path, sizeof(path), "/dev/input/event%d", i);
++            int f = open(path, O_RDONLY | O_NONBLOCK);
++            if (f < 0) continue;
++            ioctl(f, EVIOCGNAME(sizeof(name) - 1), name);
++            if (strstr(name, "Touch") || strstr(name, "touch")) fd = f; else close(f);
++        }
++    }
++    if (fd < 0) return;
++    struct input_event ev;
++    while (read(fd, &ev, sizeof(ev)) == (ssize_t)sizeof(ev)) {
++        if (ev.type == EV_ABS) {
++            if (ev.code == ABS_MT_POSITION_X || ev.code == ABS_X) x = ev.value;
++            else if (ev.code == ABS_MT_POSITION_Y || ev.code == ABS_Y) y = ev.value;
++        } else if (ev.type == EV_KEY && ev.code == BTN_TOUCH) {
++            down = ev.value != 0;
++        } else if (ev.type == EV_SYN) {
++            io.AddMousePosEvent((float)x, (float)y + BananaPanels::PanelH);
++            io.AddMouseButtonEvent(0, down);
++        }
++    }
++}
+ #define TOGGLE_BTN ImGuiKey_F1
+ #define TOGGLE_PAD_BTN ImGuiKey_GamepadBack
+ 
+@@ -216,8 +278,14 @@ void Gui::DrawMenu() {
+     }
+ 
+     const ImGuiViewport* viewport = ImGui::GetMainViewport();
+-    ImGui::SetNextWindowPos(viewport->WorkPos);
+-    ImGui::SetNextWindowSize(ImVec2((int)wnd->GetWidth(), (int)wnd->GetHeight()));
++    if (BananaPanels::Active()) {
++        const BananaPanels::PanelRect g = BananaPanels::Game();
++        ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + g.x, viewport->WorkPos.y + g.y));
++        ImGui::SetNextWindowSize(ImVec2(g.w, g.h));
++    } else {
++        ImGui::SetNextWindowPos(viewport->WorkPos);
++        ImGui::SetNextWindowSize(ImVec2((int)wnd->GetWidth(), (int)wnd->GetHeight()));
++    }
+     ImGui::SetNextWindowViewport(viewport->ID);
+     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+@@ -267,6 +335,24 @@ void Gui::DrawMenu() {
+             ->Dispatch("reset");
+     }
+ 
++    if (BananaPanels::Active()) {
++        const BananaPanels::PanelRect r = BananaPanels::Second();
++        ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + r.x, viewport->WorkPos.y + r.y));
++        ImGui::SetNextWindowSize(ImVec2(r.w, r.h));
++        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.05f, 0.05f, 0.08f, 1.0f));
++        ImGui::Begin("Second Screen", nullptr,
++                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
++                         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBringToFrontOnFocus);
++        if (BananaPanels::SecondScreenDraw) {
++            BananaPanels::SecondScreenDraw(r);
++        } else {
++            ImGui::SetCursorPos(ImVec2(r.w * 0.5f - 60.0f, r.h * 0.5f - 10.0f));
++            ImGui::TextUnformatted("PaperBoat");
++        }
++        ImGui::End();
++        ImGui::PopStyleColor();
++    }
++
+     if (GetMenuBar()) {
+         GetMenuBar()->Update();
+         GetMenuBar()->Draw();
+@@ -303,6 +389,7 @@ void Gui::StartFrame() {
+     HandleMouseCapture();
+     ImGuiBackendNewFrame();
+     ImGuiWMNewFrame();
++    if (BananaPanels::Active()) BananaPollTouch(ImGui::GetIO());
+     ImGui::NewFrame();
+ }
+ 
+@@ -310,6 +397,7 @@ void Gui::EndFrame() {
+     // Draw the ImGui "viewports" which are the floating windows.
+     ImGui::Render();
+     ImGuiRenderDrawData(ImGui::GetDrawData());
++    if (BananaPanels::Active()) BananaShot();
+     ImGui::EndFrame();
+ }
+ 
