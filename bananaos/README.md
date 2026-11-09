@@ -56,7 +56,7 @@ pictures above were taken). `/data/paperboat/maptest` (a number 0-3) is a leftov
 
 ## Status and limits
 
-Tested on bananaOS 0.5.0.1, Anbernic RG DS Plus, Paper Mario (USA). The world map is shown, not an in-room map. Battles and the pause menu
+Tested on bananaOS 0.5.0.1, Anbernic RG DS Plus (1024x768 panels), Paper Mario (USA). The launcher reads the panel size from the display mode, so other RG DS models should get the right window size, but that is untested (a report of a regular RG DS showing an overscaled picture on both screens led to this). The world map is shown, not an in-room map. Battles and the pause menu
 still run on the game panel. Not tested: other devices, other ROM versions, `swap` for long sessions.
 
 Paper Mario is a Nintendo game. This repository contains no game data. See the licenses in `bananaos/package/paperboat/licenses/` and the

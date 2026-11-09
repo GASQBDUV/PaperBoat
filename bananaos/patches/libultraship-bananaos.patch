@@ -1,9 +1,9 @@
 diff --git a/include/ship/window/gui/BananaPanels.h b/include/ship/window/gui/BananaPanels.h
 new file mode 100644
-index 0000000..fa21f0b
+index 0000000..aae7aca
 --- /dev/null
 +++ b/include/ship/window/gui/BananaPanels.h
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,38 @@
 +// BananaOS two-panel layout (SDL_BANANA_PANELS=stack: one 1024x1536 window, top panel = y 0..767).
 +// PAPERBOAT_SCREENS=single|dual|swap. Everything is placed through ImGui windows.
 +#pragma once
@@ -15,8 +15,15 @@ index 0000000..fa21f0b
 +struct PanelRect {
 +    float x, y, w, h;
 +};
-+constexpr float PanelW = 1024.0f;
-+constexpr float PanelH = 768.0f;
++// One panel's size in pixels. The launcher sets PAPERBOAT_PANEL_W/H from the display's real mode (the RG DS Plus has
++// 1024x768 panels, other models differ); without them 1024x768.
++inline float PanelEnv(const char* name, float def) {
++    const char* e = std::getenv(name);
++    float v = e ? (float)std::atof(e) : 0.0f;
++    return v >= 160.0f && v <= 4096.0f ? v : def;
++}
++inline const float PanelW = PanelEnv("PAPERBOAT_PANEL_W", 1024.0f);
++inline const float PanelH = PanelEnv("PAPERBOAT_PANEL_H", 768.0f);
 +
 +inline int Mode() {
 +    static const int m = [] {
@@ -54,10 +61,10 @@ index 1c16baa..fb753c2 100644
      Fast::mInstance.lock().get()->TextureCacheClear();
  }
 diff --git a/src/ship/window/gui/Gui.cpp b/src/ship/window/gui/Gui.cpp
-index 47cf44e..6e229a4 100644
+index 47cf44e..23089e7 100644
 --- a/src/ship/window/gui/Gui.cpp
 +++ b/src/ship/window/gui/Gui.cpp
-@@ -14,10 +14,72 @@
+@@ -14,10 +14,79 @@
  #include "ship/resource/File.h"
  #include <stb_image.h>
  #include "ship/window/gui/Fonts.h"
@@ -102,6 +109,7 @@ index 47cf44e..6e229a4 100644
 +    static int fd = -2;
 +    static int x = 0, y = 0;
 +    static bool down = false;
++    static float maxX = 0, maxY = 0; // the touch screen's range, scaled to the panel's pixels
 +    if (fd == -2) {
 +        fd = -1;
 +        for (int i = 0; i < 16 && fd < 0; i++) {
@@ -110,7 +118,12 @@ index 47cf44e..6e229a4 100644
 +            int f = open(path, O_RDONLY | O_NONBLOCK);
 +            if (f < 0) continue;
 +            ioctl(f, EVIOCGNAME(sizeof(name) - 1), name);
-+            if (strstr(name, "Touch") || strstr(name, "touch")) fd = f; else close(f);
++            if (strstr(name, "Touch") || strstr(name, "touch")) {
++                fd = f;
++                struct input_absinfo ax = {}, ay = {};
++                if (ioctl(f, EVIOCGABS(ABS_MT_POSITION_X), &ax) == 0 && ax.maximum > 0) maxX = (float)ax.maximum + 1;
++                if (ioctl(f, EVIOCGABS(ABS_MT_POSITION_Y), &ay) == 0 && ay.maximum > 0) maxY = (float)ay.maximum + 1;
++            } else close(f);
 +        }
 +    }
 +    if (fd < 0) return;
@@ -122,7 +135,8 @@ index 47cf44e..6e229a4 100644
 +        } else if (ev.type == EV_KEY && ev.code == BTN_TOUCH) {
 +            down = ev.value != 0;
 +        } else if (ev.type == EV_SYN) {
-+            io.AddMousePosEvent((float)x, (float)y + BananaPanels::PanelH);
++            io.AddMousePosEvent(maxX > 0 ? x * BananaPanels::PanelW / maxX : (float)x,
++                                (maxY > 0 ? y * BananaPanels::PanelH / maxY : (float)y) + BananaPanels::PanelH);
 +            io.AddMouseButtonEvent(0, down);
 +        }
 +    }
@@ -130,7 +144,7 @@ index 47cf44e..6e229a4 100644
  #define TOGGLE_BTN ImGuiKey_F1
  #define TOGGLE_PAD_BTN ImGuiKey_GamepadBack
  
-@@ -216,8 +278,14 @@ void Gui::DrawMenu() {
+@@ -216,8 +285,14 @@ void Gui::DrawMenu() {
      }
  
      const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -147,7 +161,7 @@ index 47cf44e..6e229a4 100644
      ImGui::SetNextWindowViewport(viewport->ID);
      ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
      ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-@@ -267,6 +335,24 @@ void Gui::DrawMenu() {
+@@ -267,6 +342,24 @@ void Gui::DrawMenu() {
              ->Dispatch("reset");
      }
  
@@ -172,7 +186,7 @@ index 47cf44e..6e229a4 100644
      if (GetMenuBar()) {
          GetMenuBar()->Update();
          GetMenuBar()->Draw();
-@@ -303,6 +389,7 @@ void Gui::StartFrame() {
+@@ -303,6 +396,7 @@ void Gui::StartFrame() {
      HandleMouseCapture();
      ImGuiBackendNewFrame();
      ImGuiWMNewFrame();
@@ -180,7 +194,7 @@ index 47cf44e..6e229a4 100644
      ImGui::NewFrame();
  }
  
-@@ -310,6 +397,7 @@ void Gui::EndFrame() {
+@@ -310,6 +404,7 @@ void Gui::EndFrame() {
      // Draw the ImGui "viewports" which are the floating windows.
      ImGui::Render();
      ImGuiRenderDrawData(ImGui::GetDrawData());
